@@ -129,7 +129,9 @@ class MainWindow:
 
         self.table.delete(*self.table.get_children())
 
-        self.table['columns'] = [x for x in ids_modules[self.selected_sensor]['results'][0].keys()]
+        if len(ids_modules[self.selected_sensor]['results']) > 0:
+            self.table['columns'] = [x for x in ids_modules[self.selected_sensor]['results'][0].keys()]
+            
         for col in self.table['columns']:
             self.table.heading(col, text=col)
 
