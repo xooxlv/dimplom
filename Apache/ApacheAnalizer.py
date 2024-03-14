@@ -8,8 +8,11 @@ import os
 import pandas as pd
 import numpy as np
 from keras.models import Sequential
-from keras.layers import Embedding, LSTM, Dense
+from keras.layers import Embedding, LSTM, Dense, Flatten, Reshape
 from sklearn.preprocessing import LabelEncoder, StandardScaler, MinMaxScaler
+
+from keras.models import Model
+from keras.layers import Input, Embedding, LSTM, Dense, Concatenate
 from sklearn.metrics import accuracy_score
 from keras.preprocessing.text import Tokenizer
 from keras.preprocessing.sequence import pad_sequences
@@ -23,8 +26,15 @@ from sklearn.svm import SVC
 class ApacheAnalizer(DataAnalizer):
     
     def __init__(self) -> None:
-        self.params_tokenizer = Tokenizer(char_level=False) # минхэши тут должны быть
-        self.max_sec_params_len = 0 
+        self.params_tokenizer = Tokenizer()
+        self.url_tokenizer = Tokenizer()
+        self.ua_tokenizer = Tokenizer()
+
+        self.max_seq_url_len = 0
+        self.max_seq_ua_len = 0
+        self.max_seq_params_len = 0
+
+
         self.min_for_train = 0
         self.classes_count = 0
 
@@ -40,17 +50,60 @@ class ApacheAnalizer(DataAnalizer):
         self.load()
 
     def train_prepare(self, df):
-        # пол. колво классов
+        # Преобразование целевой переменной в числовой формат
         df['y'] = self.y_enc.fit_transform(df['y'])
         self.classes_count = len(self.y_enc.classes_)
 
+        # Обработка столбца "url"
+        self.url_tokenizer.fit_on_texts(df['url'])
+        url_sec = self.url_tokenizer.texts_to_sequences(df['url'])
+        self.max_seq_url_len = max(len(seq) for seq in url_sec)
+        url_input = pad_sequences(url_sec, maxlen=self.max_seq_url_len, padding='post')
+
+        # Обработка столбца "params"
         self.params_tokenizer.fit_on_texts(df['params'])
         params_sec = self.params_tokenizer.texts_to_sequences(df['params'])
+        self.max_seq_params_len = max(len(seq) for seq in params_sec)
+        params_input = pad_sequences(params_sec, maxlen=self.max_seq_params_len, padding='post')
 
-        self.max_sec_params_len = max(len(seq) for seq in params_sec)
-        df['params'] = pad_sequences(params_sec, maxlen=self.max_sec_params_len, padding='post')
+        # Обработка столбца "ua" (user_agent)
+        self.ua_tokenizer.fit_on_texts(df['ua'])
+        ua_sec = self.ua_tokenizer.texts_to_sequences(df['ua'])
+        self.max_seq_ua_len = max(len(seq) for seq in ua_sec)
+        ua_input = pad_sequences(ua_sec, maxlen=self.max_seq_ua_len, padding='post')
 
-        return df
+        # Объединение всех входных данных в один массив
+        X = [url_input, params_input, ua_input]
+
+        return X, df['y']
+
+    def create_model(self):
+        # Входные данные для каждого из столбцов
+        input_url = Input(shape=(self.max_seq_url_len,))
+        input_params = Input(shape=(self.max_seq_params_len,))
+        input_ua = Input(shape=(self.max_seq_ua_len,))
+
+        # Эмбеддинг для каждого из столбцов
+        emb_url = Embedding(input_dim=len(self.url_tokenizer.word_index) + 1, output_dim=10, input_length=self.max_seq_url_len)(input_url)
+        emb_params = Embedding(input_dim=len(self.params_tokenizer.word_index) + 1, output_dim=10, input_length=self.max_seq_params_len)(input_params)
+        emb_ua = Embedding(input_dim=len(self.ua_tokenizer.word_index) + 1, output_dim=10, input_length=self.max_seq_ua_len)(input_ua)
+
+        # Flatten для каждого из эмбеддингов
+        flat_url = Flatten()(emb_url)
+        flat_params = Flatten()(emb_params)
+        flat_ua = Flatten()(emb_ua)
+
+        # Объединение эмбеддингов
+        merged = Concatenate()([flat_url, flat_params, flat_ua])
+
+        # Выходной слой с функцией активации softmax (по количеству классов)
+        output = Dense(self.classes_count, activation='softmax')(merged)
+
+        # Создание модели
+        model = Model(inputs=[input_url, input_params, input_ua], outputs=output)
+
+        return model
+
 
     def train(self, input, y):
         log('Started train model process...', lvl='debug')
@@ -82,36 +135,16 @@ class ApacheAnalizer(DataAnalizer):
 
             # образцов достаточно, классов >= 2
             # готовим данные для тренировки ембеддинга
-            df = self.train_prepare(self.train_samples)
-
-            self.model = Sequential()
-            self.model.add(Embedding(input_dim=len(self.params_tokenizer.word_index) + 1, # размер словаря
-                                        output_dim=10,                                     # размерность выхода
-                                        input_length=self.max_sec_params_len))               # колво входов
-            
-            self.model.compile(optimizer='adam',          # выберите оптимизатор
-                                  loss='sparse_categorical_crossentropy',  # выберите функцию потерь
-                                  metrics=['accuracy'])     # выберите метрики, которые вам интересны
-
-            
-            X = self.model.predict(df['params'])
-            
-            X = np.array(X).reshape(len(X), -1)
-            y = df['y'].values
-
-            self.svm = SVC(kernel='rbf', decision_function_shape='ovo')
-            self.svm.fit(X, y)
-
-
-            predicted_labels = self.svm.predict(X)
-            accuracy = accuracy_score(y, predicted_labels)
-            report['accuracy'] = accuracy
-
+            X, y = self.train_prepare(self.train_samples)
+            self.model = self.create_model()
+            self.model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+            self.model.fit(X, y, epochs=10, batch_size=32, validation_split=0.2)
+            train_loss, train_accuracy = self.model.evaluate(X, y, verbose=0)
+            report['accuracy'] = train_accuracy
         else:
             log('Мало данных:', self.new_samples.shape[0], lvl='error')
             report['error'] = 'Too less data for train'
             report['more'] = 'Train samples: ' + str(self.new_samples.shape[0])
-
 
         return report
 
@@ -151,7 +184,7 @@ class ApacheAnalizer(DataAnalizer):
 
             self.params_tokenizer.fit_on_texts(df['params'])
             params_sec = self.params_tokenizer.texts_to_sequences(df['params'])
-            df['params'] = pad_sequences(params_sec, maxlen=self.max_sec_params_len, padding='post')
+            df['params'] = pad_sequences(params_sec, maxlen=self.self.max_seq_params_len, padding='post')
     
     
             X = self.model.predict(df['params'])
