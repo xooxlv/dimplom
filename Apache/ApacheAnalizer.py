@@ -134,12 +134,15 @@ class ApacheAnalizer(DataAnalizer):
 
             # образцов достаточно, классов >= 2
             # готовим данные для тренировки ембеддинга
-            X, y = self.train_prepare(self.train_samples)
-            self.model = self.create_model()
-            self.model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
-            self.model.fit(X, y, epochs=10, batch_size=32, validation_split=0.2)
-            train_loss, train_accuracy = self.model.evaluate(X, y, verbose=0)
-            report['accuracy'] = train_accuracy
+            try:
+                X, y = self.train_prepare(self.train_samples)
+                self.model = self.create_model()
+                self.model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+                self.model.fit(X, y, epochs=10, batch_size=32, validation_split=0.2)
+                train_loss, train_accuracy = self.model.evaluate(X, y, verbose=0)
+                report['accuracy'] = train_accuracy
+            except:
+                log('Fatal error in train method', lvl='error')
         else:
             log('Мало данных:', self.new_samples.shape[0], lvl='error')
             report['error'] = 'Too less data for train'
@@ -229,8 +232,8 @@ class ApacheAnalizer(DataAnalizer):
             self.model.save(self.model_dir + 'model.h5')
 
             joblib.dump(self.params_tokenizer, self.model_dir + 'params_tokenizer.pkl')
-            joblib.dump(self.url_tokenizer, self.model_dir + 'params_tokenizer.pkl')
-            joblib.dump(self.ua_tokenizer, self.model_dir + 'params_tokenizer.pkl')
+            joblib.dump(self.url_tokenizer, self.model_dir + 'url_tokenizer.pkl')
+            joblib.dump(self.ua_tokenizer, self.model_dir + 'ua_tokenizer.pkl')
             
             joblib.dump(self.y_enc, self.model_dir + 'y_enc.pkl')
         except:
