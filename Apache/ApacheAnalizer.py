@@ -166,13 +166,16 @@ class ApacheAnalizer(DataAnalizer):
         self.classes_count = len(files)
         log('Reading samples completed, classes count:', self.classes_count, lvl='info')
 
-
-        if len(os.listdir(self.model_dir)) == 4:
+        try:
             self.model = load_model(self.model_dir + 'model.h5')
             self.params_tokenizer = joblib.load(self.model_dir + 'params_tokenizer.pkl')
+            self.url_tokenizer = joblib.load(self.model_dir + 'url_tokenizer.pkl')
+            self.ua_tokenizer = joblib.load(self.model_dir + 'ua_tokenizer.pkl')
+            
             self.y_enc = joblib.load(self.model_dir + 'y_enc.pkl')
-            self.svm = joblib.load(self.model_dir  + 'svm_model.joblib')
             self.classes_count = len(self.y_enc.classes_)
+        except:
+            log('Error while read model from', self.model_dir, lvl='error')
 
     def analize(self, input):
         report = {}
@@ -209,7 +212,6 @@ class ApacheAnalizer(DataAnalizer):
 
         return report
 
-
     def store(self):
         log('Saving samples and model...', lvl='info')
         print(self.new_samples)
@@ -227,7 +229,9 @@ class ApacheAnalizer(DataAnalizer):
             self.model.save(self.model_dir + 'model.h5')
 
             joblib.dump(self.params_tokenizer, self.model_dir + 'params_tokenizer.pkl')
+            joblib.dump(self.url_tokenizer, self.model_dir + 'params_tokenizer.pkl')
+            joblib.dump(self.ua_tokenizer, self.model_dir + 'params_tokenizer.pkl')
+            
             joblib.dump(self.y_enc, self.model_dir + 'y_enc.pkl')
-            joblib.dump(self.svm, self.model_dir  + 'svm_model.joblib')
         except:
             log('Unable save not compiled model to files', lvl='error')
