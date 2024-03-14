@@ -17,7 +17,7 @@ arh.set_handle_instrument(ccc) ## отчеты кидаем в control center
 init_module(ApacheLogFile('/var/log/apache2/ids.log'), 
             ApacheLogParser(),
             ApacheRecordsPreparer(),
-            ApacheAnalizer(1),
+            ApacheAnalizer(),
             ApacheReportBuilder(),
             arh, 
             ccc)
