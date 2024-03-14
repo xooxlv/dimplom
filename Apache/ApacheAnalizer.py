@@ -104,7 +104,6 @@ class ApacheAnalizer(DataAnalizer):
 
         return model
 
-
     def train(self, input, y):
         log('Started train model process...', lvl='debug')
 
@@ -182,22 +181,34 @@ class ApacheAnalizer(DataAnalizer):
         try:
             df = pd.DataFrame(input)
 
-            self.params_tokenizer.fit_on_texts(df['params'])
+            url_sec = self.url_tokenizer.texts_to_sequences(df['url'])
             params_sec = self.params_tokenizer.texts_to_sequences(df['params'])
-            df['params'] = pad_sequences(params_sec, maxlen=self.self.max_seq_params_len, padding='post')
-    
-    
-            X = self.model.predict(df['params'])
-            X = np.array(X).reshape(len(X), -1)
+            ua_sec = self.ua_tokenizer.texts_to_sequences(df['ua'])
 
-            for x, i in zip(X, input):
-                report['results'].append({'input' : i, 
-                               'predicted': str(self.y_enc.classes_[self.svm.predict([x])]) })
-        except:
-            log('Fatal error in analize method', lvl='fatal')
-            report['error'] = 'Fatal error in analize method'
+            ua_input = pad_sequences(ua_sec, maxlen=self.max_seq_ua_len, padding='post')
+            params_input = pad_sequences(params_sec, maxlen=self.max_seq_params_len, padding='post')
+            url_input = pad_sequences(url_sec, maxlen=self.max_seq_url_len, padding='post')
+        
+            X = [url_input, params_input, ua_input]
+
+            # Предсказание классов
+            pred_probs = self.model.predict(X)
+            pred_classes = np.argmax(pred_probs, axis=1)
+
+            # Получение меток классов
+            class_labels = self.y_enc.classes_
+
+            # Добавление результатов в отчет
+            for url, params, ua, pred_class in zip(df['url'], df['params'], df['ua'], class_labels):
+                result = {'url': url, 'params': params, 'ua': ua, 'predicted_class': pred_class}
+                report['results'].append(result)
+            
+        except Exception as e:
+            log('Fatal error in analize method: {}'.format(str(e)), lvl='fatal')
+            report['error'] = 'Fatal error in analize method: {}'.format(str(e))
 
         return report
+
 
     def store(self):
         log('Saving samples and model...', lvl='info')
