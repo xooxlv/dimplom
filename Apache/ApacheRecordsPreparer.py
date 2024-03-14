@@ -52,42 +52,42 @@ class ApacheRecordsPreparer(DataPreparer):
         user_stat = self.get_user_stat((request['client_ip']))
         record = {
             'url' : request['url'],
-            'params':  request['params'], 
+            'params':  request['params'] if request['params'] != '' else 'no', 
             'code':   request['status_code'], 
             'len':   request['content_length'], 
             'ip' :  request['client_ip'], 
             'method' :  request['method'],
             'ua' : request['user_agent'],
 
-            'rcm1' : user_stat['requests_count']['min1'], 
+            # 'rcm1' : user_stat['requests_count']['min1'], 
             # 'rcm5' : user_stat['requests_count']['min5'],
             # 'rcm30' :  user_stat['requests_count']['min30'],
             # 'rch3' :  user_stat['requests_count']['hour3'],
             # 'rcd' :   user_stat['requests_count']['day'],
 
                 # 200 статусы для анализа брута логинов
-            'c200m1' : user_stat['status_code_count']['min1']['200'], 
+            # 'c200m1' : user_stat['status_code_count']['min1']['200'], 
             # 'c200m5' : user_stat['status_code_count']['min5']['200'], 
             # 'c200m30' :  user_stat['status_code_count']['min30']['200'], 
             # 'c200h3' : user_stat['status_code_count']['hour3']['200'], 
             # 'c200d' : user_stat['status_code_count']['day']['200'], 
                             
                 # 404 статусы для анализа брута директорий
-            'c404m1' :  user_stat['status_code_count']['min1']['404'], 
+            # 'c404m1' :  user_stat['status_code_count']['min1']['404'], 
             # 'c404m5' :   user_stat['status_code_count']['min5']['404'], 
             # 'c404m30' :  user_stat['status_code_count']['min30']['404'], 
             # 'c404h3' :   user_stat['status_code_count']['hour3']['404'], 
             # 'c404d' :   user_stat['status_code_count']['day']['404'], 
 
                 # 403 статусы для анализа брута директорий
-            'c403m1' :   user_stat['status_code_count']['min1']['403'], 
+            # 'c403m1' :   user_stat['status_code_count']['min1']['403'], 
             # 'c403m5' :   user_stat['status_code_count']['min5']['403'], 
             # 'c403m30' :   user_stat['status_code_count']['min30']['403'], 
             # 'c403h3' :   user_stat['status_code_count']['hour3']['403'], 
             # 'c403d' :   user_stat['status_code_count']['day']['403'], 
 
                 # объем трафика пользователя по таймфреймам
-            'volm1' :  user_stat['traffic_volume']['min1'], 
+            # 'volm1' :  user_stat['traffic_volume']['min1'], 
             # 'volm5' :   user_stat['traffic_volume']['min5'], 
             # 'volm30' :   user_stat['traffic_volume']['min30'], 
             # 'volh3' :   user_stat['traffic_volume']['hour3'], 
