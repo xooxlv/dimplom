@@ -7,6 +7,8 @@ import os
 
 import pandas as pd
 import numpy as np
+from keras.layers import Conv1D, MaxPooling1D, GlobalMaxPooling1D
+
 from keras.models import Sequential
 from keras.layers import Embedding, LSTM, Dense, Flatten, Reshape
 from sklearn.preprocessing import LabelEncoder, StandardScaler, MinMaxScaler
@@ -101,12 +103,20 @@ class ApacheAnalizer(DataAnalizer):
         emb_params = Embedding(input_dim=len(self.params_tokenizer.word_index) + 1, output_dim=10, input_length=self.max_seq_params_len)(input_params)
         emb_ua = Embedding(input_dim=len(self.ua_tokenizer.word_index) + 1, output_dim=10, input_length=self.max_seq_ua_len)(input_ua)
 
-        # Flatten для каждого из эмбеддингов
-        flat_url = Flatten()(emb_url)
-        flat_params = Flatten()(emb_params)
-        flat_ua = Flatten()(emb_ua)
+        # Сверточные слои для каждого из эмбеддингов
+        conv_url = Conv1D(64, 3, activation='relu')(emb_url)
+        pool_url = MaxPooling1D(2)(conv_url)
+        flat_url = GlobalMaxPooling1D()(pool_url)
 
-        # Объединение эмбеддингов
+        conv_params = Conv1D(64, 3, activation='relu')(emb_params)
+        pool_params = MaxPooling1D(2)(conv_params)
+        flat_params = GlobalMaxPooling1D()(pool_params)
+
+        conv_ua = Conv1D(64, 3, activation='relu')(emb_ua)
+        pool_ua = MaxPooling1D(2)(conv_ua)
+        flat_ua = GlobalMaxPooling1D()(pool_ua)
+
+        # Объединение эмбеддингов и других входных данных
         merged = Concatenate()([flat_url, flat_params, flat_ua, input_status_code, input_method])
 
         # Выходной слой с функцией активации softmax (по количеству классов)
@@ -151,7 +161,7 @@ class ApacheAnalizer(DataAnalizer):
                 X, y = self.train_prepare(self.train_samples)
                 self.model = self.create_model()
                 self.model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
-                self.model.fit(X, y, epochs=10, batch_size=32, validation_split=0.2)
+                self.model.fit(X, y, epochs=1, batch_size=32, validation_split=0.2)
                 train_loss, train_accuracy = self.model.evaluate(X, y, verbose=0)
                 report['accuracy'] = train_accuracy
             except Exception as ex:
@@ -223,11 +233,8 @@ class ApacheAnalizer(DataAnalizer):
             pred_probs = self.model.predict(X)
             pred_classes = np.argmax(pred_probs, axis=1)
 
-            # Получение меток классов
-            class_labels = self.y_enc.classes_
-
             # Добавление результатов в отчет
-            for url, params, ua, code, methdod, pred_class in zip(df['url'], df['params'], df['ua'], df['code'], df['method'], class_labels):
+            for url, params, ua, code, method, pred_class in zip(df['url'], df['params'], df['ua'], df['code'], df['method'], self.y_enc.inverse_transform(pred_classes)):
                 result = {'url': url,
                           'params': params,
                           'ua': ua,
