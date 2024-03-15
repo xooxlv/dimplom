@@ -30,6 +30,9 @@ class ApacheAnalizer(DataAnalizer):
         self.url_tokenizer = Tokenizer()
         self.ua_tokenizer = Tokenizer()
 
+        self.status_code_encoder = LabelEncoder()
+        self.method_encoder = LabelEncoder()
+
         self.max_seq_url_len = 0
         self.max_seq_ua_len = 0
         self.max_seq_params_len = 0
@@ -49,7 +52,7 @@ class ApacheAnalizer(DataAnalizer):
 
         self.load()
 
-    def train_prepare(self, df):
+    def train_prepare(self, df: pd.DataFrame):
         # Преобразование целевой переменной в числовой формат
         df['y'] = self.y_enc.fit_transform(df['y'])
         self.classes_count = len(self.y_enc.classes_)
@@ -72,8 +75,16 @@ class ApacheAnalizer(DataAnalizer):
         self.max_seq_ua_len = max(len(seq) for seq in ua_sec)
         ua_input = pad_sequences(ua_sec, maxlen=self.max_seq_ua_len, padding='post')
 
+        # Преобразование столбца "status_code" в числовой формат
+        df['code'] = self.status_code_encoder.fit_transform(df['code'])
+        status_code_input = np.array(df['code']).reshape(-1, 1)
+
+        # Преобразование столбца "method" в числовой формат
+        df['method'] = self.method_encoder.fit_transform(df['method'])
+        method_input = np.array(df['method']).reshape(-1, 1)
+
         # Объединение всех входных данных в один массив
-        X = [url_input, params_input, ua_input]
+        X = [url_input, params_input, ua_input, status_code_input, method_input]
 
         return X, df['y']
 
@@ -82,6 +93,8 @@ class ApacheAnalizer(DataAnalizer):
         input_url = Input(shape=(self.max_seq_url_len,))
         input_params = Input(shape=(self.max_seq_params_len,))
         input_ua = Input(shape=(self.max_seq_ua_len,))
+        input_status_code = Input(shape=(1,))
+        input_method = Input(shape=(1,))
 
         # Эмбеддинг для каждого из столбцов
         emb_url = Embedding(input_dim=len(self.url_tokenizer.word_index) + 1, output_dim=10, input_length=self.max_seq_url_len)(input_url)
@@ -94,13 +107,13 @@ class ApacheAnalizer(DataAnalizer):
         flat_ua = Flatten()(emb_ua)
 
         # Объединение эмбеддингов
-        merged = Concatenate()([flat_url, flat_params, flat_ua])
+        merged = Concatenate()([flat_url, flat_params, flat_ua, input_status_code, input_method])
 
         # Выходной слой с функцией активации softmax (по количеству классов)
         output = Dense(self.classes_count, activation='softmax')(merged)
 
         # Создание модели
-        model = Model(inputs=[input_url, input_params, input_ua], outputs=output)
+        model = Model(inputs=[input_url, input_params, input_ua, input_status_code, input_method], outputs=output)
 
         return model
 
@@ -141,8 +154,8 @@ class ApacheAnalizer(DataAnalizer):
                 self.model.fit(X, y, epochs=10, batch_size=32, validation_split=0.2)
                 train_loss, train_accuracy = self.model.evaluate(X, y, verbose=0)
                 report['accuracy'] = train_accuracy
-            except:
-                log('Fatal error in train method', lvl='error')
+            except Exception as ex:
+                log('Fatal error in train method:', ex.with_traceback(),  lvl='error')
         else:
             log('Мало данных:', self.new_samples.shape[0], lvl='error')
             report['error'] = 'Too less data for train'
@@ -176,6 +189,9 @@ class ApacheAnalizer(DataAnalizer):
             self.ua_tokenizer = joblib.load(self.model_dir + 'ua_tokenizer.pkl')
             
             self.y_enc = joblib.load(self.model_dir + 'y_enc.pkl')
+            self.status_code_encoder = joblib.load(self.model_dir + 'status_code_encoder.pkl')
+            self.method_encoder = joblib.load(self.model_dir + 'method_encoder.pkl')
+
             self.classes_count = len(self.y_enc.classes_)
         except:
             log('Error while read model from', self.model_dir, lvl='error')
@@ -194,8 +210,14 @@ class ApacheAnalizer(DataAnalizer):
             ua_input = pad_sequences(ua_sec, maxlen=self.max_seq_ua_len, padding='post')
             params_input = pad_sequences(params_sec, maxlen=self.max_seq_params_len, padding='post')
             url_input = pad_sequences(url_sec, maxlen=self.max_seq_url_len, padding='post')
-        
-            X = [url_input, params_input, ua_input]
+
+            tr_code = self.status_code_encoder.fit_transform(df['code'])
+            code = np.array(tr_code).reshape(-1, 1)    
+
+            tr_method = self.method_encoder.fit_transform(df['method'])
+            method = np.array(tr_method).reshape(-1, 1)
+    
+            X = [url_input, params_input, ua_input, code, method]
 
             # Предсказание классов
             pred_probs = self.model.predict(X)
@@ -205,8 +227,13 @@ class ApacheAnalizer(DataAnalizer):
             class_labels = self.y_enc.classes_
 
             # Добавление результатов в отчет
-            for url, params, ua, pred_class in zip(df['url'], df['params'], df['ua'], class_labels):
-                result = {'url': url, 'params': params, 'ua': ua, 'predicted_class': pred_class}
+            for url, params, ua, code, methdod, pred_class in zip(df['url'], df['params'], df['ua'], df['code'], df['method'], class_labels):
+                result = {'url': url,
+                          'params': params,
+                          'ua': ua,
+                          'code' : code,
+                          'method': method,
+                          'predicted_class': pred_class}
                 report['results'].append(result)
             
         except Exception as e:
@@ -234,6 +261,9 @@ class ApacheAnalizer(DataAnalizer):
             joblib.dump(self.params_tokenizer, self.model_dir + 'params_tokenizer.pkl')
             joblib.dump(self.url_tokenizer, self.model_dir + 'url_tokenizer.pkl')
             joblib.dump(self.ua_tokenizer, self.model_dir + 'ua_tokenizer.pkl')
+
+            joblib.dump(self.status_code_encoder, self.model_dir + 'status_code_encoder.pkl')
+            joblib.dump(self.method_encoder, self.model_dir + 'method_encoder.pkl')
             
             joblib.dump(self.y_enc, self.model_dir + 'y_enc.pkl')
         except:
