@@ -125,7 +125,7 @@ class MainWindow:
         log('Selected sensor - ', self.selected_sensor, lvl='debug')
 
         # заменяем точность предыдущей модели на точность текущей
-        self.accuracy_label.config(text='Точность модели: ' + str(ids_modules[self.selected_sensor]['accuracy']) + '%')
+        self.accuracy_label.config(text='Точность модели: ' + str(float(ids_modules[self.selected_sensor]['accuracy']) * 100) + '%')
 
         self.table.delete(*self.table.get_children())
 
