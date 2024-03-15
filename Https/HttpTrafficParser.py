@@ -6,5 +6,7 @@ class HttpTrafficParser(DataParser):
         re = []
         for line in data.split('\n'):
             if line != '':
-                re.append({'path' : eval(line)['path']})
+                record = eval(line)
+                del record['cookies']
+                re.append(record)
         return re
