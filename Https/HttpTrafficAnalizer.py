@@ -4,9 +4,12 @@ from keras.preprocessing.sequence import pad_sequences
 from sklearn.metrics import accuracy_score
 from keras.models import load_model
 import joblib
-
+from sklearn.model_selection import train_test_split
 from keras.models import Sequential
 from keras.layers import Embedding
+from sklearn.feature_extraction.text import CountVectorizer
+from scipy.sparse import hstack
+
 
 import pandas as pd
 import numpy as np
@@ -14,7 +17,7 @@ from sklearn.preprocessing import LabelEncoder
 from log import log
 
 from sklearn.svm import SVC
-import os
+import os, json
 
 
 class HttpTrafficAnalizer(DataAnalizer):
@@ -33,20 +36,51 @@ class HttpTrafficAnalizer(DataAnalizer):
         self.y_enc = LabelEncoder()
         self.emb_path = Sequential()
 
+        self.params_vectorizer = CountVectorizer()
+
         self.load()
 
+    def fill_params(self, df):
+        for index, row in df.iterrows():
+            if row['formdata'] == '{}':  # Проверяем, равно ли значение столбца 'formdata' '{}'
+                df.at[index, 'params'] = row['query']  # Если равно, то копируем данные из 'query' в 'params'
+            elif row['query'] == '{}':  # Проверяем, равно ли значение столбца 'query' '{}'
+                df.at[index, 'params'] = row['formdata']  # Если равно, то копируем данные из 'formdata' в 'params'
+            else:
+                df['params'] = '{\'key\': \'no\'}'
+
+        return df[['params', 'path', 'y']]
+
     def train_prepare(self, df):
-        # пол. колво классов
+        print(df)
         df['y'] = self.y_enc.fit_transform(df['y'])
         self.classes_count = len(self.y_enc.classes_)
 
         self.path_tokenizer.fit_on_texts(df['path'])
         path_sec = self.path_tokenizer.texts_to_sequences(df['path'])
 
-        self.max_sec_path_len = max(len(seq) for seq in path_sec)
-        df['path'] = pad_sequences(path_sec, maxlen=self.max_sec_path_len, padding='post')
+        max_sec_path_len = max(len(seq) for seq in path_sec)
+        padded_path_seq = pad_sequences(path_sec, maxlen=max_sec_path_len, padding='post')
+        
+        df['params'] = df['params'].str.replace("'", "\"")
+        values_list = []
+        for index, row in df.iterrows():
+            try:
+                data_dict = json.loads(row['params'])
+                values_list.append(data_dict.values())
+            except:
+                log(f'Unable parse from json:\n{row}\n',  lvl='error')
+                values_list.append(['no'])
 
-        return df
+        storage = []
+        for values in values_list:
+            storage.append(''.join(values))
+
+        transformed_params = self.params_vectorizer.fit_transform(storage)
+        combined_features = hstack((padded_path_seq, transformed_params))
+        combined_features_array = combined_features.toarray() 
+
+        return combined_features_array, df['y']
 
     def train(self, input, y):
         log('Started train model process...', lvl='debug')
@@ -78,30 +112,16 @@ class HttpTrafficAnalizer(DataAnalizer):
 
             # образцов достаточно, классов >= 2
             # готовим данные для тренировки ембеддинга
-            df = self.train_prepare(self.train_samples)
+            df = self.fill_params(self.train_samples.copy())
+            X, y = self.train_prepare(df)
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)  # Пример: 20% тестовых данных
 
-            self.emb_path = Sequential()
-            self.emb_path.add(Embedding(input_dim=len(self.path_tokenizer.word_index) + 1, # размер словаря
-                                        output_dim=10,                                     # размерность выхода
-                                        input_length=self.max_sec_path_len))               # колво входов
-            
-            self.emb_path.compile(optimizer='adam',          # выберите оптимизатор
-                                  loss='sparse_categorical_crossentropy',  # выберите функцию потерь
-                                  metrics=['accuracy'])     # выберите метрики, которые вам интересны
-
-            
-            X = self.emb_path.predict(df['path'])
-            
-            X = np.array(X).reshape(len(X), -1)
-            y = df['y'].values
-
-            self.svm = SVC(kernel='rbf', decision_function_shape='ovo')
-            self.svm.fit(X, y)
-
-
-            predicted_labels = self.svm.predict(X)
-            accuracy = accuracy_score(y, predicted_labels)
-            report['accuracy'] = accuracy
+            svm = SVC(kernel='rbf', decision_function_shape='ovo')
+            svm.fit(X_train, y_train)
+            y_pred = svm.predict(X_test)
+            print(y_pred)
+            accuracy = accuracy_score(y_test, y_pred)
+            print("Accuracy:", accuracy)
 
         else:
             log('Мало данных:', self.new_samples.shape[0], lvl='error')
@@ -170,7 +190,11 @@ class HttpTrafficAnalizer(DataAnalizer):
         grouped = self.new_samples.groupby('y')
         for group_name, group_df in grouped:
             filename = f"{group_name}.csv"  # Имя файла на основе значения y
-            group_df.to_csv(self.samples_dir + filename, sep='\t', index=False, mode='a')
+
+            if os.path.exists(self.samples_dir + filename):
+                group_df.to_csv(self.samples_dir + filename, sep='\t', index=False, header=None, mode='a')
+            else: group_df.to_csv(self.samples_dir + filename, sep='\t', index=False, mode='w')
+
 
         try:
             self.emb_path.save(self.model_dir + 'model.h5')
