@@ -42,6 +42,9 @@ class HttpTrafficAnalizer(DataAnalizer):
 
     def fill_params(self, df):
         for index, row in df.iterrows():
+            row['formdata'] = str(row['formdata'])
+            row['query'] = str(row['query'])
+
             if row['formdata'] == '{}':  # Проверяем, равно ли значение столбца 'formdata' '{}'
                 df.at[index, 'params'] = row['query']  # Если равно, то копируем данные из 'query' в 'params'
             elif row['query'] == '{}':  # Проверяем, равно ли значение столбца 'query' '{}'
@@ -52,21 +55,19 @@ class HttpTrafficAnalizer(DataAnalizer):
         return df[['params', 'path', 'y']]
 
     def train_prepare(self, df):
-        print(df)
         df['y'] = self.y_enc.fit_transform(df['y'])
         self.classes_count = len(self.y_enc.classes_)
 
         self.path_tokenizer.fit_on_texts(df['path'])
         path_sec = self.path_tokenizer.texts_to_sequences(df['path'])
 
-        max_sec_path_len = max(len(seq) for seq in path_sec)
-        padded_path_seq = pad_sequences(path_sec, maxlen=max_sec_path_len, padding='post')
+        self.max_sec_path_len = max(len(seq) for seq in path_sec)
+        padded_path_seq = pad_sequences(path_sec, maxlen=self.max_sec_path_len, padding='post')
         
-        df['params'] = df['params'].str.replace("'", "\"")
         values_list = []
         for index, row in df.iterrows():
             try:
-                data_dict = json.loads(row['params'])
+                data_dict = eval(row['params'])
                 values_list.append(data_dict.values())
             except:
                 log(f'Unable parse from json:\n{row}\n',  lvl='error')
@@ -116,13 +117,11 @@ class HttpTrafficAnalizer(DataAnalizer):
             X, y = self.train_prepare(df)
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)  # Пример: 20% тестовых данных
 
-            svm = SVC(kernel='rbf', decision_function_shape='ovo')
-            svm.fit(X_train, y_train)
-            y_pred = svm.predict(X_test)
-            print(y_pred)
+            self.svm = SVC(kernel='linear', decision_function_shape='ovo')
+            self.svm.fit(X_train, y_train)
+            y_pred = self.svm.predict(X_test)
             accuracy = accuracy_score(y_test, y_pred)
-            print("Accuracy:", accuracy)
-
+            report['accuracy'] = accuracy
         else:
             log('Мало данных:', self.new_samples.shape[0], lvl='error')
             report['error'] = 'Too less data for train'
@@ -174,7 +173,7 @@ class HttpTrafficAnalizer(DataAnalizer):
             values_list = []
             for index, row in df.iterrows():
                 try:
-                    data_dict = json.loads(row['params'])
+                    data_dict = eval(row['params'])
                     values_list.append(data_dict.values())
                 except:
                     log(f'Unable parse from json:\n{row}\n',  lvl='error')
@@ -191,20 +190,18 @@ class HttpTrafficAnalizer(DataAnalizer):
             predictions = self.svm.predict(X)
             pred_labels = self.y_enc.inverse_transform(predictions)
             
-            # Создаем отчет
-            for idx, pred_label in enumerate(pred_labels):
+            for idx, pred in enumerate(pred_labels):
                 result = {
                     'path': df.iloc[idx]['path'],
                     'params': df.iloc[idx]['params']
                 }
-                report['results'].append({'input': result, 'prediction': pred_label})
+                report['results'].append({'input': result, 'predicted': pred})
 
         except Exception as ex:
             log(f'Fatal error in analize method: {ex}', lvl='fatal')
             report['error'] = 'Fatal error in analize method'
 
         return report
-    
 
 
     def store(self):

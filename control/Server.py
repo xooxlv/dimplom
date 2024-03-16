@@ -45,7 +45,7 @@ class ConnectionAccepter:
     def accept_connection(self):    
         log('Accepted connection:', self.client, lvl='info')
         self.connections : dict
-        self.connections[self.client] = {'active': True,'accuracy' : 0,'mode': 'Обучение','y' : 'test','results' : []}
+        self.connections[self.client] = {'active': True,'accuracy' : 0,'mode': '','y' : '','results' : []}
         self.root.destroy()
         self.cl_acpt = True
         main_window.update_combobox_values()
@@ -187,7 +187,7 @@ def connect():
 
     if len(ids_modules.keys()) > cur_client_cnt:
         return 'ACCEPT'
-    else: return 'DENY'
+    else: return 'ACCEPT'
 
 @app.route('/is_work', methods=['GET'])
 def is_work():
