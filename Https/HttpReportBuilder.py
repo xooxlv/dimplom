@@ -2,10 +2,16 @@ from logic.ReportBuilder import ReportBuilder
 
 class HttpReportBuilder(ReportBuilder):
     def make_report(self, net_results):
+
+
+        print(net_results)
+        if not net_results:
+            return {'error': 'No report'}
         
         good_report = {}
 
-        rus = {'path': 'URL', 
+        rus = {'path': 'URL',
+               'params' : 'Параметры запроса', 
                'predicted': 'Класс атаки'}
         
         attack_ignore = ['test', 'normal']

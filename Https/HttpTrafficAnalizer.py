@@ -164,23 +164,48 @@ class HttpTrafficAnalizer(DataAnalizer):
 
         try:
             df = pd.DataFrame(input)
+            df['y'] = 'no label'
 
-            self.path_tokenizer.fit_on_texts(df['path'])
+            df = self.fill_params(df)[['path', 'params']]
+
             path_sec = self.path_tokenizer.texts_to_sequences(df['path'])
-            df['path'] = pad_sequences(path_sec, maxlen=self.max_sec_path_len, padding='post')
-    
-    
-            X = self.emb_path.predict(df['path'])
-            X = np.array(X).reshape(len(X), -1)
+            padded_path_seq = pad_sequences(path_sec, maxlen=self.max_sec_path_len, padding='post')
 
-            for x, i in zip(X, input):
-                report['results'].append({'input' : i, 
-                               'predicted': str(self.y_enc.classes_[self.svm.predict([x])]) })
-        except:
-            log('Fatal error in analize method', lvl='fatal')
+            values_list = []
+            for index, row in df.iterrows():
+                try:
+                    data_dict = json.loads(row['params'])
+                    values_list.append(data_dict.values())
+                except:
+                    log(f'Unable parse from json:\n{row}\n',  lvl='error')
+                    values_list.append(['no'])
+
+            storage = []
+            for values in values_list:
+                storage.append(''.join(values))
+        
+            transformed_params = self.params_vectorizer.transform(storage)
+            combined_features = hstack((padded_path_seq, transformed_params))
+            X = combined_features.toarray() 
+
+            predictions = self.svm.predict(X)
+            pred_labels = self.y_enc.inverse_transform(predictions)
+            
+            # Создаем отчет
+            for idx, pred_label in enumerate(pred_labels):
+                result = {
+                    'path': df.iloc[idx]['path'],
+                    'params': df.iloc[idx]['params']
+                }
+                report['results'].append({'input': result, 'prediction': pred_label})
+
+        except Exception as ex:
+            log(f'Fatal error in analize method: {ex}', lvl='fatal')
             report['error'] = 'Fatal error in analize method'
 
         return report
+    
+
 
     def store(self):
         log('Saving samples and model...', lvl='info')
